@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🐛 虫の探検家 - ブラウザAI版</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1"></script>
+    <style>
+        :root { --bg:#fff8f0; --primary:#e85d04; --primary-dark:#dc2f02; --accent:#faa307; --text:#370617; --muted:#6c757d; --shadow:0 8px 24px rgba(232,93,4,0.12); }
+        * { box-sizing:border-box; margin:0; padding:0; }
+        body { font-family:'M PLUS Rounded 1c',system-ui,sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
+        .header { background:linear-gradient(135deg,#ff9a3c 0%,#e85d04 50%,#dc2f02 100%); color:white; padding:16px 20px; display:flex; justify-content:space-between; align-items:center; position:sticky; top:0; z-index:100; box-shadow:0 4px 16px rgba(220,47,2,0.3); }
+        .logo { font-size:1.4rem; font-weight:800; display:flex; align-items:center; gap:8px; }
+        .header-stats { display:flex; gap:12px; align-items:center; font-weight:700; font-size:0.9rem; }
+        .level-pill { background:white; color:var(--primary-dark); padding:4px 10px; border-radius:999px; }
+        .bottom-nav { position:fixed; bottom:0; left:0; right:0; background:white; display:flex; justify-content:space-around; padding:10px 0 16px; box-shadow:0 -4px 20px rgba(0,0,0,0.08); z-index:100; border-radius:20px 20px 0 0; }
+        .bottom-nav button { background:none; border:none; font-size:0.7rem; color:#999; display:flex; flex-direction:column; align-items:center; gap:4px; cursor:pointer; font-family:inherit; font-weight:700; }
+        .bottom-nav button.active { color:var(--primary); }
+        .bottom-nav i { font-size:1.25rem; }
+        .section { display:none; padding:16px 16px 100px; max-width:520px; margin:0 auto; }
+        .section.active { display:block; animation:slideUp 0.35s ease; }
+        @keyframes slideUp { from{opacity:0;transform:translateY(16px);} to{opacity:1;transform:none;} }
+        .welcome-banner { background:linear-gradient(135deg,#fff 0%,#fff3e0 100%); border-radius:24px; padding:24px; margin-bottom:16px; box-shadow:var(--shadow); position:relative; overflow:hidden; }
+        .welcome-banner::before { content:'🐛'; position:absolute; right:-10px; bottom:-20px; font-size:90px; opacity:0.12; }
+        .progress-card { background:white; border-radius:20px; padding:16px; margin-bottom:16px; box-shadow:var(--shadow); }
+        .xp-track { height:12px; background:#ffe0b2; border-radius:999px; overflow:hidden; margin-top:8px; }
+        .xp-fill { height:100%; background:linear-gradient(90deg,var(--accent),var(--primary)); border-radius:999px; transition:width 0.6s; }
+        .quick-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:16px; }
+        .quick-card { background:white; border-radius:20px; padding:16px 12px; text-align:center; box-shadow:var(--shadow); cursor:pointer; }
+        .quick-card i { font-size:1.7rem; margin-bottom:6px; display:block; }
+        .card { background:white; border-radius:24px; padding:20px; margin-bottom:16px; box-shadow:var(--shadow); }
+        label { display:block; font-weight:700; margin:12px 0 6px; font-size:0.95rem; }
+        input[type="text"], textarea, input[type="file"] { width:100%; padding:12px; border:2px solid #ffe0b2; border-radius:14px; font-family:inherit; font-size:1rem; background:#fffaf5; }
+        textarea { height:70px; resize:vertical; }
+        .btn { background:linear-gradient(135deg,var(--primary),var(--primary-dark)); color:white; border:none; padding:14px; border-radius:16px; font-size:1.05rem; font-weight:800; width:100%; cursor:pointer; font-family:inherit; box-shadow:0 6px 16px rgba(232,93,4,0.35); margin-top:10px; }
+        .btn:disabled { opacity:0.6; cursor:not-allowed; }
+        #photoPreview { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+        .preview-img { width:76px; height:76px; object-fit:cover; border-radius:12px; border:3px solid white; box-shadow:0 3px 8px rgba(0,0,0,0.1); }
+        #map { height:380px; border-radius:20px; margin-top:10px; }
+        .custom-marker { width:68px; height:68px; border-radius:50%; border:4px solid white; box-shadow:0 4px 12px rgba(0,0,0,0.25); background-size:cover; background-position:center; position:relative; }
+        .custom-marker::after { content:''; position:absolute; bottom:-12px; left:50%; transform:translateX(-50%); border-left:10px solid transparent; border-right:10px solid transparent; border-top:12px solid white; }
+        .collection-grid, .badges-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:12px; }
+        .collect-card, .badge-card { background:white; border-radius:16px; padding:12px; text-align:center; box-shadow:0 4px 12px rgba(0,0,0,0.06); cursor:pointer; }
+        .collect-card img { width:100%; height:90px; object-fit:cover; border-radius:10px; }
+        .badge-card .icon { font-size:2rem; margin-bottom:4px; }
+        .badge-card.locked { opacity:0.45; filter:grayscale(0.8); }
+        .overlay { position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:200; display:none; }
+        .popup { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:white; border-radius:24px; padding:24px; text-align:center; z-index:201; width:88%; max-width:360px; display:none; }
+        .note { font-size:0.8rem; color:#e85d04; margin-top:8px; text-align:center; }
+        .loading { display:none; text-align:center; padding:12px; color:var(--primary); font-weight:700; }
+        .result-name { font-size:1.4rem; font-weight:800; color:var(--primary-dark); margin:8px 0; }
+        .detail-popup { max-width:400px; text-align:left; }
+        .detail-popup img { width:100%; height:180px; object-fit:cover; border-radius:12px; margin-bottom:12px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo">🐛 虫の探検家</div>
+        <div class="header-stats">
+            <div class="level-pill">Lv.<span id="level">1</span></div>
+            <div><i class="fas fa-star" style="color:#ffe066"></i> <span id="totalPoints">0</span></div>
+        </div>
+    </div>
+
+    <div id="home" class="section active">
+        <div class="welcome-banner">
+            <h1>今日も探検しよう！</h1>
+            <p>ブラウザのAIが写真を見て判定します</p>
+        </div>
+        <div class="progress-card">
+            <div style="display:flex; justify-content:space-between; font-weight:700;">
+                <span>経験値</span><span id="xpText">0 / 500</span>
+            </div>
+            <div class="xp-track"><div class="xp-fill" id="xpBar"></div></div>
+        </div>
+        <div class="quick-grid">
+            <div class="quick-card" onclick="showSection('identify')"><i class="fas fa-camera" style="color:#e85d04"></i><strong>新しい発見</strong></div>
+            <div class="quick-card" onclick="showSection('collection')"><i class="fas fa-book-open" style="color:#2d6a4f"></i><strong>図鑑</strong></div>
+            <div class="quick-card" onclick="showSection('badges')"><i class="fas fa-medal" style="color:#faa307"></i><strong>バッジ</strong></div>
+            <div class="quick-card" onclick="showSection('mapview')"><i class="fas fa-map" style="color:#1d3557"></i><strong>発見マップ</strong></div>
+        </div>
+        <div style="font-weight:800; margin:16px 0 10px;">最近の発見</div>
+        <div id="recentList"></div>
+    </div>
+
+    <div id="identify" class="section">
+        <div class="card">
+            <h2 style="margin-bottom:6px;">新しい虫を発見</h2>
+            <p style="color:var(--muted); font-size:0.85rem;">2枚以上の写真を選んでください</p>
+            <label>写真（2枚以上）</label>
+            <input type="file" id="photos" accept="image/*" multiple>
+            <div id="photoPreview"></div>
+            <label>特徴（任意）</label>
+            <textarea id="features" placeholder="色、大きさ、模様など"></textarea>
+            <label>生息環境（任意）</label>
+            <textarea id="habitat" placeholder="例：公園の木の下"></textarea>
+            <label>場所を検索</label>
+            <div style="display:flex; gap:8px;">
+                <input type="text" id="placeSearch" placeholder="例：石垣島、富士山">
+                <button class="btn" style="width:auto; padding:12px 16px; margin:0;" onclick="searchPlace()">検索</button>
+            </div>
+            <div id="map"></div>
+            <button class="btn" id="submitBtn" onclick="submitIdentification()">AIに判定してもらう！</button>
+            <div class="loading" id="loading">AIが考え中...</div>
+            <p class="note">※ 一般的な画像認識モデルです。結果は参考程度です。</p>
+        </div>
+    </div>
+
+    <div id="collection" class="section">
+        <h2 style="margin-bottom:12px;">📖 図鑑（<span id="collectionCount">0</span>種）</h2>
+        <div class="collection-grid" id="collectionGrid"></div>
+        <p id="emptyCollection" style="text-align:center; color:#aaa; padding:40px 0;">まだ発見がありません</p>
+    </div>
+
+    <div id="badges" class="section">
+        <h2 style="margin-bottom:12px;">🏅 バッジ</h2>
+        <div class="badges-grid" id="badgesGrid"></div>
+    </div>
+
+    <div id="mapview" class="section">
+        <h2 style="margin-bottom:12px;">🗺️ 発見マップ</h2>
+        <div id="collectionMap" style="height:500px; border-radius:20px;"></div>
+    </div>
+
+    <div class="bottom-nav">
+        <button class="active" onclick="showSection('home')"><i class="fas fa-home"></i>ホーム</button>
+        <button onclick="showSection('identify')"><i class="fas fa-search"></i>判別</button>
+        <button onclick="showSection('collection')"><i class="fas fa-book"></i>図鑑</button>
+        <button onclick="showSection('badges')"><i class="fas fa-medal"></i>バッジ</button>
+        <button onclick="showSection('mapview')"><i class="fas fa-map"></i>マップ</button>
+    </div>
+
+    <div class="overlay" id="overlay" onclick="closePopup()"></div>
+    <div class="popup" id="resultPopup">
+        <h2>🎉 発見！</h2>
+        <div class="result-name" id="resultName"></div>
+        <p id="resultText"></p>
+        <button class="btn" style="margin-top:16px;" onclick="closePopup()">図鑑に登録された！</button>
+    </div>
+
+    <div class="popup detail-popup" id="detailPopup">
+        <img id="detailImg" src="" alt="">
+        <h3 id="detailName" style="margin-bottom:8px;"></h3>
+        <p id="detailInfo" style="font-size:0.9rem; line-height:1.5;"></p>
+        <button class="btn" style="margin-top:16px;" onclick="closeDetail()">閉じる</button>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        let gameData = { xp:0, level:1, points:0, collection:[], unlockedBadges:[], totalIdentifications:0, detailCount:0, multiPhotoCount:0 };
+        const BADGES = [
+            { id:'first', name:'初めての発見', icon:'🌱', desc:'最初の虫を見つけた' },
+            { id:'five', name:'探検家', icon:'🧭', desc:'5種類以上を発見' },
+            { id:'detail', name:'観察名人', icon:'📝', desc:'詳しい情報を3回入力' },
+            { id:'multi', name:'写真の達人', icon:'📷', desc:'3枚以上の写真で3回判別' },
+            { id:'explorer', name:'旅人', icon:'🌍', desc:'違う場所で3回発見' }
+        ];
+        let map, marker, collectionMap, model = null;
+        let selectedPhotos = [];
+        let currentLatLng = null;
+
+        async function loadModel() {
+            if (!model) model = await mobilenet.load();
+            return model;
+        }
+
+        function loadGame() {
+            const saved = localStorage.getItem('insectGameBrowserAIv2');
+            if (saved) gameData = JSON.parse(saved);
+            updateUI(); renderHome(); renderCollection(); renderBadges();
+        }
+        function saveGame() { localStorage.setItem('insectGameBrowserAIv2', JSON.stringify(gameData)); }
+        function updateUI() {
+            document.getElementById('level').textContent = gameData.level;
+            document.getElementById('totalPoints').textContent = gameData.points;
+            document.getElementById('collectionCount').textContent = gameData.collection.length;
+            const need = gameData.level * 500;
+            const current = gameData.xp % need;
+            document.getElementById('xpText').textContent = `${current} / ${need}`;
+            document.getElementById('xpBar').style.width = `${(current / need) * 100}%`;
+            while (gameData.xp >= gameData.level * 500) { gameData.xp -= gameData.level * 500; gameData.level++; }
+        }
+        function showSection(id) {
+            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+            document.querySelectorAll('.bottom-nav button').forEach(b => b.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+            event.currentTarget.classList.add('active');
+            if (id === 'home') renderHome();
+            if (id === 'mapview') renderCollectionMap();
+        }
+        function renderHome() {
+            const recent = gameData.collection.slice(-3).reverse();
+            const list = document.getElementById('recentList');
+            list.innerHTML = recent.length ? '' : '<p style="color:#aaa; text-align:center; padding:20px 0;">まだ発見がありません</p>';
+            recent.forEach(item => {
+                list.innerHTML += `<div style="background:white; border-radius:16px; padding:12px; display:flex; align-items:center; gap:12px; margin-bottom:10px; box-shadow:0 4px 12px rgba(0,0,0,0.05); cursor:pointer;" onclick="showDetail(${item.id})">
+                    <img src="${item.photo}" style="width:56px; height:56px; border-radius:12px; object-fit:cover;">
+                    <div><div style="font-weight:700;">${item.species}</div><div style="font-size:0.8rem; color:#888;">${item.place || '場所不明'} ・ ${item.date}</div></div></div>`;
+            });
+        }
+        function initMap() {
+            map = L.map('map').setView([35.6, 139.7], 4);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'&copy; OSM' }).addTo(map);
+            map.on('click', e => setLocation(e.latlng.lat, e.latlng.lng));
+        }
+        function renderCollectionMap() {
+            if (collectionMap) collectionMap.remove();
+            collectionMap = L.map('collectionMap').setView([35.6, 139.7], 5);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'&copy; OSM' }).addTo(collectionMap);
+            gameData.collection.forEach(item => {
+                if (!item.lat) return;
+                const icon = L.divIcon({ className:'', html:`<div class="custom-marker" style="background-image:url('${item.photo}')"></div>`, iconSize:[68,80], iconAnchor:[34,68] });
+                L.marker([item.lat, item.lng], { icon }).addTo(collectionMap).bindPopup(`<b>${item.species}</b><br>${item.place || ''}`);
+            });
+        }
+        async function searchPlace() {
+            const q = document.getElementById('placeSearch').value.trim();
+            if (!q) return alert('場所を入力してください');
+            try {
+                const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`);
+                const data = await res.json();
+                if (data.length) { setLocation(+data[0].lat, +data[0].lon); map.flyTo([+data[0].lat, +data[0].lon], 11); }
+                else alert('見つかりませんでした');
+            } catch { alert('検索に失敗しました'); }
+        }
+        function setLocation(lat, lng) {
+            currentLatLng = { lat, lng };
+            if (marker) map.removeLayer(marker);
+            const photo = selectedPhotos[0] || 'https://via.placeholder.com/68/e85d04/ffffff?text=🐛';
+            const icon = L.divIcon({ className:'', html:`<div class="custom-marker" style="background-image:url('${photo}')"></div>`, iconSize:[68,80], iconAnchor:[34,68] });
+            marker = L.marker([lat, lng], { icon }).addTo(map).bindPopup('ここ！').openPopup();
+        }
+        document.getElementById('photos').addEventListener('change', e => {
+            const files = Array.from(e.target.files);
+            if (files.length < 2) { alert('2枚以上選んでください'); return; }
+            selectedPhotos = [];
+            const preview = document.getElementById('photoPreview');
+            preview.innerHTML = '';
+            files.forEach(file => {
+                const reader = new FileReader();
+                reader.onload = ev => {
+                    selectedPhotos.push(ev.target.result);
+                    const img = document.createElement('img');
+                    img.src = ev.target.result; img.className = 'preview-img'; preview.appendChild(img);
+                    if (currentLatLng && selectedPhotos.length === 1) setLocation(currentLatLng.lat, currentLatLng.lng);
+                };
+                reader.readAsDataURL(file);
+            });
+        });
+
+        async function classifyImage(dataUrl) {
+            const img = new Image();
+            img.src = dataUrl;
+            await new Promise(r => img.onload = r);
+            const m = await loadModel();
+            const predictions = await m.classify(img);
+            return predictions[0];
+        }
+
+        async function submitIdentification() {
+            if (selectedPhotos.length < 2) return alert('2枚以上の写真が必要です');
+            if (!currentLatLng) return alert('場所を指定してください');
+
+            document.getElementById('submitBtn').disabled = true;
+            document.getElementById('loading').style.display = 'block';
+
+            try {
+                const results = [];
+                for (const photo of selectedPhotos.slice(0, 3)) {
+                    results.push(await classifyImage(photo));
+                }
+                results.sort((a, b) => b.probability - a.probability);
+                const best = results[0];
+                const species = best.className.split(',')[0].trim();
+                const confidence = Math.round(best.probability * 100);
+
+                const features = document.getElementById('features').value.trim();
+                const habitat = document.getElementById('habitat').value.trim();
+                const place = document.getElementById('placeSearch').value.trim();
+
+                let xp = 100 + (selectedPhotos.length >= 3 ? 40 : 0) + (features ? 30 : 0) + (habitat ? 30 : 0) + (place ? 20 : 0);
+                if (confidence > 70) xp += 30;
+                const isNew = !gameData.collection.some(c => c.species === species);
+                if (isNew) xp += 60;
+
+                gameData.xp += xp;
+                gameData.points += xp;
+                gameData.totalIdentifications++;
+                if (features || habitat) gameData.detailCount++;
+                if (selectedPhotos.length >= 3) gameData.multiPhotoCount++;
+
+                const newItem = {
+                    id: Date.now(), species, photo: selectedPhotos[0],
+                    lat: currentLatLng.lat, lng: currentLatLng.lng, place: place || '不明',
+                    features, habitat, date: new Date().toLocaleDateString('ja-JP'),
+                    xp, confidence
+                };
+                gameData.collection.push(newItem);
+
+                const checks = {
+                    first: () => gameData.totalIdentifications >= 1,
+                    five: () => gameData.collection.length >= 5,
+                    detail: () => gameData.detailCount >= 3,
+                    multi: () => gameData.multiPhotoCount >= 3,
+                    explorer: () => new Set(gameData.collection.map(c => c.place)).size >= 3
+                };
+                const newBadges = [];
+                BADGES.forEach(b => {
+                    if (!gameData.unlockedBadges.includes(b.id) && checks[b.id]()) {
+                        gameData.unlockedBadges.push(b.id); newBadges.push(b.name);
+                    }
+                });
+
+                saveGame(); updateUI(); renderCollection(); renderBadges();
+
+                document.getElementById('resultName').textContent = species;
+                let text = `確信度: <b>${confidence}%</b><br>+${xp} XP 獲得！`;
+                if (isNew) text += '<br>✨ 図鑑に新しく登録されました！';
+                else text += '<br>図鑑に追加されました';
+                if (newBadges.length) text += `<br>🏅 バッジ獲得: ${newBadges.join('、')}`;
+                document.getElementById('resultText').innerHTML = text;
+                document.getElementById('overlay').style.display = 'block';
+                document.getElementById('resultPopup').style.display = 'block';
+
+            } catch (err) {
+                alert('判定に失敗しました: ' + err.message);
+            } finally {
+                document.getElementById('submitBtn').disabled = false;
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('photos').value = '';
+                document.getElementById('photoPreview').innerHTML = '';
+                selectedPhotos = [];
+                document.getElementById('features').value = '';
+                document.getElementById('habitat').value = '';
+            }
+        }
+
+        function closePopup() {
+            document.getElementById('overlay').style.display = 'none';
+            document.getElementById('resultPopup').style.display = 'none';
+            document.getElementById('detailPopup').style.display = 'none';
+        }
+        function showDetail(id) {
+            const item = gameData.collection.find(c => c.id === id);
+            if (!item) return;
+            document.getElementById('detailImg').src = item.photo;
+            document.getElementById('detailName').textContent = item.species;
+            document.getElementById('detailInfo').innerHTML = `
+                確信度: ${item.confidence}%<br>
+                場所: ${item.place}<br>
+                日付: ${item.date}<br>
+                ${item.features ? '特徴: ' + item.features + '<br>' : ''}
+                ${item.habitat ? '環境: ' + item.habitat : ''}
+            `;
+            document.getElementById('overlay').style.display = 'block';
+            document.getElementById('detailPopup').style.display = 'block';
+        }
+        function closeDetail() { closePopup(); }
+        function renderCollection() {
+            const grid = document.getElementById('collectionGrid');
+            const empty = document.getElementById('emptyCollection');
+            grid.innerHTML = '';
+            if (!gameData.collection.length) { empty.style.display = 'block'; return; }
+            empty.style.display = 'none';
+            [...gameData.collection].reverse().forEach(item => {
+                grid.innerHTML += `<div class="collect-card" onclick="showDetail(${item.id})"><img src="${item.photo}"><div style="font-weight:700; margin-top:6px;">${item.species}</div><div style="font-size:0.75rem; color:#888;">${item.place} ・ ${item.confidence}%</div></div>`;
+            });
+        }
+        function renderBadges() {
+            const grid = document.getElementById('badgesGrid');
+            grid.innerHTML = '';
+            BADGES.forEach(b => {
+                const unlocked = gameData.unlockedBadges.includes(b.id);
+                grid.innerHTML += `<div class="badge-card ${unlocked ? '' : 'locked'}"><div class="icon">${b.icon}</div><div style="font-weight:700; font-size:0.85rem;">${b.name}</div><div style="font-size:0.7rem; color:#888; margin-top:4px;">${b.desc}</div>${unlocked ? '<div style="color:#2d6a4f; font-size:0.75rem; margin-top:4px;">獲得済み</div>' : ''}</div>`;
+            });
+        }
+        window.onload = () => { loadGame(); initMap(); };
+    </script>
+</body>
+</html>
